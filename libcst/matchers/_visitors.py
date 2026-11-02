@@ -29,6 +29,7 @@ from libcst.matchers._decorators import (
     VISIT_POSITIVE_MATCHER_ATTR,
 )
 from libcst.matchers._matcher_base import (
+    _InverseOf,
     AllOf,
     AtLeastN,
     AtMostN,
@@ -86,8 +87,29 @@ class MatchDecoratorMismatch(Exception):
 
 
 def _get_possible_match_classes(matcher: BaseMatcherNode) -> List[Type[cst.CSTNode]]:
-    if isinstance(matcher, (OneOf, AllOf)):
-        return [getattr(cst, m.__class__.__name__) for m in matcher.options]
+    if isinstance(matcher, _InverseOf):
+        # An inverted matcher accepts every node that the wrapped matcher rejects,
+        # so any class could be passed to the decorated function.
+        return list(TYPED_FUNCTION_RETURN_MAPPING)
+    elif isinstance(matcher, OneOf):
+        return [
+            cls
+            for option in matcher.options
+            for cls in _get_possible_match_classes(cast(BaseMatcherNode, option))
+        ]
+    elif isinstance(matcher, AllOf):
+        # Inverted options only exclude nodes, they do not say what a node must be, so
+        # the classes are given by the remaining options (if there are any).
+        options = [
+            option for option in matcher.options if not isinstance(option, _InverseOf)
+        ]
+        if not options:
+            return list(TYPED_FUNCTION_RETURN_MAPPING)
+        return [
+            cls
+            for option in options
+            for cls in _get_possible_match_classes(cast(BaseMatcherNode, option))
+        ]
     else:
         return [getattr(cst, matcher.__class__.__name__)]
 

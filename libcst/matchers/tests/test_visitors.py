@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import pickle
-from typing import Union
+from typing import List, Union
 
 import libcst as cst
 import libcst.matchers as m
@@ -159,6 +159,51 @@ class MatchersVisitLeaveDecoratorTypingTest(UnitTest):
 
         # Instantiating this class should not raise any errors
         TestVisitor()
+
+    def test_valid_transformer_leave_inverse_with_positive_matcher(self) -> None:
+        class TestVisitor(MatcherDecoratableTransformer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.seen: List[str] = []
+
+            @leave(m.Name() & ~m.Name("c"))
+            def _name_leave(
+                self, original_node: cst.Name, updated_node: cst.Name
+            ) -> cst.Name:
+                self.seen.append(original_node.value)
+                return updated_node
+
+        # Instantiating this class should not raise any errors, and the function
+        # should only be called for names other than "c".
+        visitor = TestVisitor()
+        cst.parse_module("import a, b, c, d").visit(visitor)
+        self.assertEqual(visitor.seen, ["a", "b", "d"])
+
+    def test_valid_collector_visit_inverse_with_base_annotation(self) -> None:
+        class TestVisitor(MatcherDecoratableVisitor):
+            @visit(~m.Name("c"))
+            def _node_visit(self, node: cst.CSTNode) -> None:
+                pass
+
+            @visit(m.Name("a") | ~m.Name("b"))
+            def _either_visit(self, node: cst.CSTNode) -> None:
+                pass
+
+        # Instantiating this class should not raise any errors
+        TestVisitor()
+
+    def test_invalid_collector_visit_inverse(self) -> None:
+        class TestVisitor(MatcherDecoratableVisitor):
+            @visit(~m.Name("c"))
+            def _name_visit(self, node: cst.Name) -> None:
+                pass
+
+        # An inverted matcher can match any node, not only names.
+        with self.assertRaisesRegex(
+            MatchDecoratorMismatch,
+            "@visit can be called with .* but the decorated function parameter annotations do not include this type",
+        ):
+            TestVisitor()
 
     def test_invalid_collector_visit_return(self) -> None:
         class TestVisitor(MatcherDecoratableVisitor):
